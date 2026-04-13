@@ -1,10 +1,10 @@
-const express = require("express");
+import express, { Request, Response } from "express";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Health check route
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "Server is running" });
 });
 
