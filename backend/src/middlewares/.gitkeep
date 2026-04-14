@@ -1,0 +1,17 @@
+/**
+ * Middlewares Directory
+ * 
+ * This directory will contain custom Express middlewares for:
+ * - Authentication/Authorization
+ * - Error handling
+ * - Request validation
+ * - Logging
+ * - Rate limiting
+ * - CORS configuration
+ * 
+ * Future Middlewares:
+ * - authMiddleware.ts
+ * - errorHandler.ts
+ * - requestValidator.ts
+ * - logger.ts
+ */

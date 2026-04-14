@@ -1,0 +1,13 @@
+/**
+ * Controllers Directory
+ * 
+ * This directory will contain all controller functions that handle business logic
+ * for different routes. Controllers will be separated by feature.
+ * 
+ * Future Controllers:
+ * - healthController.ts
+ * - authController.ts
+ * - quizController.ts
+ * - roomController.ts
+ * - userController.ts
+ */
