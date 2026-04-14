@@ -4,6 +4,7 @@ import cors from "cors";
 // Import routes
 import healthRoute from "./routes/health.route";
 import authRoute from "./routes/auth.route";
+import roomRoute from "./routes/room.route";
 
 /**
  * Initialize and configure Express app
@@ -40,13 +41,15 @@ app.use("/api/health", healthRoute);
 // Authentication routes
 app.use("/api/auth", authRoute);
 
+// Room management routes
+app.use("/api/room", roomRoute);
+
 // Example: Protected routes (uncomment to enable)
 // import protectedRoutes from "./routes/protected.route";
 // app.use("/api/protected", protectedRoutes);
 
 // Add more routes here as modules expand
 // app.use("/api/quizzes", quizRoute);
-// app.use("/api/rooms", roomRoute);
 
 // ==================== 404 Handler ====================
 
