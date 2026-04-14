@@ -15,9 +15,12 @@ const config = {
   // Database
   MONGO_URI: process.env.MONGO_URI || "mongodb://localhost:27017/quiz-system",
   
+  // Authentication
+  JWT_SECRET: process.env.JWT_SECRET || "your-default-secret-key",
+  JWT_EXPIRY: process.env.JWT_EXPIRY || "7d",
+  
   // Add more environment variables here as needed
   // REDIS_URL: process.env.REDIS_URL,
-  // JWT_SECRET: process.env.JWT_SECRET,
 };
 
 /**
