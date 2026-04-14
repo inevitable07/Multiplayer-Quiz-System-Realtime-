@@ -12,8 +12,10 @@ const config = {
   PORT: parseInt(process.env.PORT || "5000", 10),
   NODE_ENV: process.env.NODE_ENV || "development",
   
+  // Database
+  MONGO_URI: process.env.MONGO_URI || "mongodb://localhost:27017/quiz-system",
+  
   // Add more environment variables here as needed
-  // DATABASE_URL: process.env.DATABASE_URL,
   // REDIS_URL: process.env.REDIS_URL,
   // JWT_SECRET: process.env.JWT_SECRET,
 };
@@ -22,7 +24,7 @@ const config = {
  * Validate that required environment variables are set
  */
 const validateConfig = () => {
-  const required = ["PORT"];
+  const required = ["PORT", "MONGO_URI"];
   const missing = required.filter(
     (key) => !Object.prototype.hasOwnProperty.call(config, key)
   );
