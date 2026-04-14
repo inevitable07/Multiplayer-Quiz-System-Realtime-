@@ -1,17 +1,26 @@
+import http from "http";
 import app from "./app";
 import config from "./config/env";
 import { connectDB } from "./config/db";
+import { initializeSocket } from "./sockets";
 
 /**
- * Start the Express server
- * Connects to MongoDB, then starts the server with proper error handling
+ * Start the Express server with Socket.IO
+ * Connects to MongoDB, initializes Socket.IO, then starts the server with proper error handling
  */
 const startServer = async () => {
   try {
     // Connect to MongoDB first
     await connectDB();
 
-    const server = app.listen(config.PORT, () => {
+    // Create HTTP server from Express app
+    const httpServer = http.createServer(app);
+
+    // Initialize Socket.IO with the HTTP server
+    const io = initializeSocket(httpServer);
+    console.log("🔌 Socket.IO initialized and ready for WebSocket connections");
+
+    const server = httpServer.listen(config.PORT, () => {
       console.log(`
 ╔══════════════════════════════════════════════╗
 ║  🚀 Multiplayer Quiz System Backend Started  ║
