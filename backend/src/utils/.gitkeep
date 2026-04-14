@@ -1,0 +1,18 @@
+/**
+ * Utils Directory
+ * 
+ * This directory will contain utility functions and helpers:
+ * - Custom error classes
+ * - Response formatting utilities
+ * - Validation helpers
+ * - Database connection utilities
+ * - JWT helpers
+ * - Logging utilities
+ * 
+ * Future Utilities:
+ * - logger.ts
+ * - errorClasses.ts
+ * - responseFormatter.ts
+ * - validators.ts
+ * - jwtHelper.ts
+ */
