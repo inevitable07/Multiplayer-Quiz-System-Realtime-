@@ -1,11 +1,21 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
 /**
+ * Player Interface
+ * Represents a player in a room
+ */
+export interface IPlayer {
+  userId: Types.ObjectId;
+  username: string;
+}
+
+/**
  * Room Interface
  * Defines the structure of a Room document
  */
 export interface IRoom extends Document {
   hostId: Types.ObjectId;
+  players: IPlayer[];
   status: "waiting" | "active" | "finished";
   createdAt: Date;
   updatedAt: Date;
@@ -22,6 +32,22 @@ const roomSchema = new Schema<IRoom>(
       ref: "User",
       required: [true, "Host ID is required"],
       index: true,
+    },
+    players: {
+      type: [
+        {
+          userId: {
+            type: Schema.Types.ObjectId,
+            ref: "User",
+            required: true,
+          },
+          username: {
+            type: String,
+            required: true,
+          },
+        },
+      ],
+      default: [],
     },
     status: {
       type: String,
