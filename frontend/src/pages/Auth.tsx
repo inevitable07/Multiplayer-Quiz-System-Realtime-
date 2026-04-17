@@ -1,17 +1,29 @@
 import { FC, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import apiClient from '../services/api'
+import { setToken } from '../utils/auth'
 
 /**
  * Auth Page
  * Premium authentication UI with split layout
  * Supports login and signup modes with dynamic gradients
+ * 
+ * Features:
+ * - Form validation
+ * - JWT token storage
+ * - Automatic redirect on successful auth
+ * - Error handling and display
  */
 const Auth: FC = () => {
+  const navigate = useNavigate()
   const [isLogin, setIsLogin] = useState(true)
   const [formData, setFormData] = useState({
     username: '',
     email: '',
     password: '',
   })
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
 
   // Dynamic gradient based on mode
   const gradientClass = isLogin
@@ -29,12 +41,65 @@ const Auth: FC = () => {
       ...prev,
       [name]: value,
     }))
+    // Clear error when user starts typing
+    if (error) setError('')
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // TODO: Implement API call in Module 7 Part 3
-    console.log('Form submitted:', formData)
+    setIsLoading(true)
+    setError('')
+
+    try {
+      let response
+
+      if (isLogin) {
+        // Login API call
+        response = await apiClient.post('/auth/login', {
+          email: formData.email,
+          password: formData.password,
+        })
+      } else {
+        // Signup API call
+        response = await apiClient.post('/auth/signup', {
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+        })
+      }
+
+      // Extract token and user data from response
+      const { data } = response
+      const token = data.data?.token || data.token
+
+      if (!token) {
+        setError('No authentication token received. Please try again.')
+        setIsLoading(false)
+        return
+      }
+
+      // Store token in localStorage using utility function
+      setToken(token)
+
+      // Update axios default header for future requests
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`
+
+      // Clear form and redirect to lobby
+      setFormData({ username: '', email: '', password: '' })
+      navigate('/lobby')
+    } catch (err: any) {
+      // Handle error response
+      const errorMessage =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        'An error occurred. Please try again.'
+
+      setError(errorMessage)
+      console.error('Auth error:', err)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -57,6 +122,13 @@ const Auth: FC = () => {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Error Message Display */}
+            {error && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-red-800 text-sm font-medium">{error}</p>
+              </div>
+            )}
+
             {/* Signup Only: Username Field */}
             {!isLogin && (
               <div>
@@ -69,6 +141,7 @@ const Auth: FC = () => {
                   onChange={handleInputChange}
                   className="input-field"
                   required
+                  disabled={isLoading}
                 />
               </div>
             )}
@@ -84,6 +157,7 @@ const Auth: FC = () => {
                 onChange={handleInputChange}
                 className="input-field"
                 required
+                disabled={isLoading}
               />
             </div>
 
@@ -98,6 +172,7 @@ const Auth: FC = () => {
                 onChange={handleInputChange}
                 className="input-field"
                 required
+                disabled={isLoading}
               />
             </div>
 
@@ -116,9 +191,17 @@ const Auth: FC = () => {
             {/* Submit Button */}
             <button
               type="submit"
-              className="btn-primary w-full text-lg"
+              className="btn-primary w-full text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isLoading}
             >
-              {isLogin ? 'Sign In' : 'Sign Up'}
+              {isLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+                  {isLogin ? 'Signing In...' : 'Signing Up...'}
+                </span>
+              ) : (
+                <span>{isLogin ? 'Sign In' : 'Sign Up'}</span>
+              )}
             </button>
           </form>
 
@@ -169,8 +252,10 @@ const Auth: FC = () => {
                 onClick={() => {
                   setIsLogin(!isLogin)
                   setFormData({ username: '', email: '', password: '' })
+                  setError('')
                 }}
-                className="text-black hover:underline font-semibold"
+                className="text-black hover:underline font-semibold disabled:opacity-50"
+                disabled={isLoading}
               >
                 {isLogin ? 'Sign up' : 'Sign in'}
               </button>

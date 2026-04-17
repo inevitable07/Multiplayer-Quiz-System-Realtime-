@@ -6,34 +6,75 @@ import Auth from '../pages/Auth'
 import Lobby from '../pages/Lobby'
 import Room from '../pages/Room'
 
+// Import route protection components
+import ProtectedRoute from '../components/ProtectedRoute'
+import PublicRoute from '../components/PublicRoute'
+import { isAuthenticated } from '../utils/auth'
+
 /**
- * App Routes
- * Defines all application routes and their corresponding pages
+ * App Routes with Authentication Protection
+ * Defines all application routes with proper access control
  * 
- * Routes:
- * - /auth → Authentication page (signup/login)
- * - /lobby → Lobby page (room list and creation)
- * - /room/:id → Room page (quiz content)
- * - / → Redirect to /auth (default)
+ * Public Routes:
+ * - /auth → PublicRoute (accessible only when NOT authenticated)
+ * 
+ * Protected Routes:
+ * - /lobby → ProtectedRoute (accessible only when authenticated)
+ * - /room/:id → ProtectedRoute (accessible only when authenticated)
+ * 
+ * Defaults:
+ * - / → Redirects to /auth if not authenticated, or /lobby if authenticated
+ * - /* → Redirects to /auth if not authenticated, or /lobby if authenticated
  */
 const AppRoutes: FC = () => {
   return (
     <Router>
       <Routes>
-        {/* Auth routes */}
-        <Route path="/auth" element={<Auth />} />
+        {/* Public Routes - Auth Page */}
+        <Route
+          path="/auth"
+          element={
+            <PublicRoute>
+              <Auth />
+            </PublicRoute>
+          }
+        />
 
-        {/* Lobby route */}
-        <Route path="/lobby" element={<Lobby />} />
+        {/* Protected Routes - Lobby */}
+        <Route
+          path="/lobby"
+          element={
+            <ProtectedRoute>
+              <Lobby />
+            </ProtectedRoute>
+          }
+        />
 
-        {/* Room route with dynamic ID parameter */}
-        <Route path="/room/:id" element={<Room />} />
+        {/* Protected Routes - Room with Dynamic ID */}
+        <Route
+          path="/room/:id"
+          element={
+            <ProtectedRoute>
+              <Room />
+            </ProtectedRoute>
+          }
+        />
 
-        {/* Default redirect */}
-        <Route path="/" element={<Navigate to="/auth" replace />} />
+        {/* Default redirect - smart redirect based on auth state */}
+        <Route
+          path="/"
+          element={
+            <Navigate to={isAuthenticated() ? '/lobby' : '/auth'} replace />
+          }
+        />
 
-        {/* Catch all unknown routes */}
-        <Route path="*" element={<Navigate to="/auth" replace />} />
+        {/* Catch all unknown routes - smart redirect based on auth state */}
+        <Route
+          path="*"
+          element={
+            <Navigate to={isAuthenticated() ? '/lobby' : '/auth'} replace />
+          }
+        />
       </Routes>
     </Router>
   )
