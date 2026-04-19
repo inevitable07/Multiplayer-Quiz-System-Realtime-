@@ -5,6 +5,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Auth from '../pages/Auth'
 import Lobby from '../pages/Lobby'
 import Room from '../pages/Room'
+import Quiz from '../pages/Quiz'
+import Results from '../pages/Results'
 
 // Import route protection components
 import ProtectedRoute from '../components/ProtectedRoute'
@@ -56,6 +58,26 @@ const AppRoutes: FC = () => {
           element={
             <ProtectedRoute>
               <Room />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Protected Routes - Quiz with Dynamic Room ID */}
+        <Route
+          path="/quiz/:roomId"
+          element={
+            <ProtectedRoute>
+              <Quiz />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Protected Routes - Results with Dynamic Room ID */}
+        <Route
+          path="/results/:roomId"
+          element={
+            <ProtectedRoute>
+              <Results />
             </ProtectedRoute>
           }
         />
