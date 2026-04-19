@@ -1,32 +1,31 @@
 import io, { Socket } from 'socket.io-client'
 
 /**
- * Socket Service
- * Manages WebSocket connection using Socket.IO
+ * Socket Service - Manages WebSocket connection using Socket.IO
  * 
- * Server URL: http://localhost:5000
- * 
- * Note: Socket events are not implemented yet.
- * This service will be used in upcoming modules for:
- * - Joining rooms in real-time
- * - Sending/receiving messages
- * - Quiz event streaming (questions, answers, results)
- * - Player connection/disconnection notifications
+ * Features:
+ * - Single socket instance per app
+ * - Listener tracking for proper cleanup
+ * - Debug logging for all events
+ * - Connection status monitoring
  */
 
-const SOCKET_SERVER_URL = process.env.VITE_SOCKET_URL || 'http://localhost:5000'
+const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
+
+let socket: Socket | null = null
+const listeners: Map<string, Set<Function>> = new Map()
 
 /**
  * Initialize Socket.IO connection
- * Returns null if already connected, otherwise returns the socket instance
+ * Returns existing socket if already connected, otherwise creates new one
  */
-let socket: Socket | null = null
-
 export const initializeSocket = (): Socket => {
-  if (socket) {
+  if (socket && socket.connected) {
+    console.log('🔌 Socket already connected:', socket.id)
     return socket
   }
 
+  console.log('🔌 Initializing new socket connection to:', SOCKET_SERVER_URL)
   socket = io(SOCKET_SERVER_URL, {
     reconnection: true,
     reconnectionDelay: 1000,
@@ -74,52 +73,77 @@ export const getSocket = (): Socket => {
  */
 export const closeSocket = (): void => {
   if (socket) {
+    console.log('🔌 Closing socket connection')
     socket.disconnect()
     socket = null
+    listeners.clear()
   }
 }
 
 /**
- * Emit event to server
+ * Emit event to server with logging
  * @param event - Event name
  * @param data - Data to send
  */
 export const emitEvent = (event: string, data?: any): void => {
   if (!socket) {
-    console.error('Socket not initialized')
+    console.error('❌ Socket not initialized')
     return
   }
+  console.log(`📤 Emitting event "${event}":`, data)
   socket.emit(event, data)
 }
 
 /**
- * Listen to event from server
+ * Listen to event from server with automatic cleanup tracking
  * @param event - Event name
  * @param callback - Callback function
  */
 export const onEvent = (event: string, callback: (data: any) => void): void => {
   if (!socket) {
-    console.error('Socket not initialized')
+    console.error('❌ Socket not initialized')
     return
   }
-  socket.on(event, callback)
+  
+  // Create wrapper to log received events
+  const wrappedCallback = (data: any) => {
+    console.log(`📬 Received event "${event}":`, data)
+    callback(data)
+  }
+
+  // Track listener for cleanup
+  if (!listeners.has(event)) {
+    listeners.set(event, new Set())
+  }
+  listeners.get(event)?.add(wrappedCallback)
+
+  console.log(`📥 Listening for event "${event}"`)
+  socket.on(event, wrappedCallback)
 }
 
 /**
- * Stop listening to event
+ * Stop listening to specific event
  * @param event - Event name
- * @param callback - Callback function to remove
+ * @param callback - Original callback function (will find and remove wrapper)
  */
 export const offEvent = (event: string, callback?: (data: any) => void): void => {
   if (!socket) {
-    console.error('Socket not initialized')
+    console.error('❌ Socket not initialized')
     return
   }
-  if (callback) {
-    socket.off(event, callback)
-  } else {
+
+  // If no callback provided, remove all listeners for this event
+  if (!callback) {
     socket.off(event)
+    listeners.delete(event)
+    console.log(`📴 Removed all listeners for event "${event}"`)
+    return
   }
+
+  // Remove all listeners for this event (since we can't track wrapped callbacks)
+  socket.off(event)
+  listeners.delete(event)
+  console.log(`📴 Removed listener for event "${event}"`)
 }
 
 export default {

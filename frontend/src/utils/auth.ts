@@ -47,3 +47,38 @@ export const logout = (): void => {
   clearToken()
   // Token removal will trigger a 401 in API interceptor if making requests
 }
+
+/**
+ * Decode JWT token and extract user information
+ * JWT format: header.payload.signature
+ * @param token JWT token to decode
+ * @returns Decoded payload object or null if invalid
+ */
+export const decodeToken = (token: string): any | null => {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) {
+      console.error('Invalid token format')
+      return null
+    }
+
+    // Decode the payload (second part)
+    const decoded = JSON.parse(atob(parts[1]))
+    return decoded
+  } catch (error) {
+    console.error('Failed to decode token:', error)
+    return null
+  }
+}
+
+/**
+ * Get current user ID from JWT token
+ * @returns User ID from token or null if not found
+ */
+export const getUserId = (): string | null => {
+  const token = getToken()
+  if (!token) return null
+
+  const decoded = decodeToken(token)
+  return decoded?.id || decoded?.userId || null
+}

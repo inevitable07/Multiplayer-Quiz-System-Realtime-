@@ -17,6 +17,7 @@ export interface IRoom extends Document {
   hostId: Types.ObjectId;
   players: IPlayer[];
   status: "waiting" | "active" | "finished";
+  shortCode: string; // 6-digit code for easy sharing
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,6 +58,14 @@ const roomSchema = new Schema<IRoom>(
       },
       default: "waiting",
       index: true,
+    },
+    shortCode: {
+      type: String,
+      unique: true,
+      sparse: true, // Allow null values for existing rooms
+      index: true,
+      minlength: 6,
+      maxlength: 6,
     },
   },
   {

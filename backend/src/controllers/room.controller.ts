@@ -48,17 +48,28 @@ export const createRoom = async (
     }
 
     /**
+     * Generate unique 6-digit short code
+     */
+    let shortCode: string;
+    let isUnique = false;
+    
+    while (!isUnique) {
+      shortCode = String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+      const existingRoom = await Room.findOne({ shortCode });
+      if (!existingRoom) {
+        isUnique = true;
+      }
+    }
+
+    /**
      * Create new room with authenticated user as host
+     * Note: Players array is empty initially - host is tracked separately via hostId
      */
     const newRoom = new Room({
       hostId: new mongoose.Types.ObjectId(userId),
-      players: [
-        {
-          userId: new mongoose.Types.ObjectId(userId),
-          username: user.username,
-        },
-      ],
+      players: [], // Empty - host is NOT counted as a player
       status: "waiting",
+      shortCode,
     });
 
     /**
@@ -74,6 +85,7 @@ export const createRoom = async (
       message: "Room created successfully",
       data: {
         roomId: savedRoom._id,
+        shortCode: savedRoom.shortCode,
         hostId: savedRoom.hostId,
         players: savedRoom.players,
         status: savedRoom.status,
@@ -93,6 +105,7 @@ export const createRoom = async (
 /**
  * Join Room Controller
  * Adds authenticated user to existing room's player list
+ * Accepts either full MongoDB ID (24 chars) or 6-digit shortCode
  */
 export const joinRoom = async (
   req: AuthenticatedRequest,
@@ -114,25 +127,37 @@ export const joinRoom = async (
     const userId = req.user.userId;
 
     /**
-     * Validation: Check if roomId is valid MongoDB ObjectId
+     * Find room by either shortCode (6 digits) or full MongoDB ID (24 chars)
      */
-    if (!roomId || roomId.length !== 24) {
+    let room;
+
+    if (roomId.length === 6 && /^\d+$/.test(roomId)) {
+      // Treat as 6-digit short code - try exact match first
+      room = await Room.findOne({ shortCode: roomId });
+      
+      if (!room) {
+        res.status(404).json({
+          success: false,
+          message: "Room not found with that code",
+        });
+        return;
+      }
+    } else if (roomId.length === 24) {
+      // Treat as full MongoDB ObjectId
+      room = await Room.findById(roomId);
+
+      if (!room) {
+        res.status(404).json({
+          success: false,
+          message: "Room not found",
+        });
+        return;
+      }
+    } else {
+      // Invalid format
       res.status(400).json({
         success: false,
-        message: "Invalid room ID format",
-      });
-      return;
-    }
-
-    /**
-     * Find room by ID
-     */
-    const room = await Room.findById(roomId);
-
-    if (!room) {
-      res.status(404).json({
-        success: false,
-        message: "Room not found",
+        message: "Invalid room ID format. Use 6-digit code or full room ID",
       });
       return;
     }
