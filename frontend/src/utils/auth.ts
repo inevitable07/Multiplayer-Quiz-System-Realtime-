@@ -4,6 +4,7 @@
  */
 
 const TOKEN_KEY = 'token'
+const USERNAME_KEY = 'username'
 
 /**
  * Check if user is authenticated
@@ -39,12 +40,36 @@ export const clearToken = (): void => {
 }
 
 /**
+ * Get username from localStorage
+ * @returns stored username or null
+ */
+export const getUsername = (): string | null => {
+  return localStorage.getItem(USERNAME_KEY)
+}
+
+/**
+ * Store username in localStorage
+ * @param username - username to persist
+ */
+export const setUsername = (username: string): void => {
+  localStorage.setItem(USERNAME_KEY, username)
+}
+
+/**
+ * Clear username from localStorage
+ */
+export const clearUsername = (): void => {
+  localStorage.removeItem(USERNAME_KEY)
+}
+
+/**
  * Logout user
- * Clears token from storage and returns to auth page
+ * Clears token and username from storage
  * Note: Page redirect should be handled by the calling component
  */
 export const logout = (): void => {
   clearToken()
+  clearUsername()
   // Token removal will trigger a 401 in API interceptor if making requests
 }
 
@@ -80,5 +105,6 @@ export const getUserId = (): string | null => {
   if (!token) return null
 
   const decoded = decodeToken(token)
-  return decoded?.id || decoded?.userId || null
+  // JWT payload uses 'userId' (set in backend generateToken)
+  return decoded?.userId || decoded?.id || null
 }

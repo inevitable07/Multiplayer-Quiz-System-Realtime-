@@ -1,177 +1,297 @@
-import { FC, useEffect, useState } from 'react'
+import { FC, useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Clock } from 'lucide-react'
+import { Clock, CheckCircle, XCircle } from 'lucide-react'
+import { initializeSocket, onEvent, emitEvent } from '../services/socket'
+import { getUserId } from '../utils/auth'
 
 /**
  * Question Interface
- * Defines the structure of a quiz question
+ * Matches the backend send_question event structure
  */
 interface Question {
-  id: string
-  text: string
+  questionIndex: number
+  totalQuestions: number
+  question: string
   options: {
     label: string // A, B, C, D
     text: string // Option text
   }[]
-  correctAnswer: string // Label of correct option (A, B, C, D)
+  timeLimit: number // seconds
+}
+
+interface AnswerFeedback {
+  correct: boolean
+  correctAnswer: string
+  currentScore: number
 }
 
 /**
- * Mock Questions Data
- * In production, these would come from the backend
- */
-const MOCK_QUESTIONS: Question[] = [
-  {
-    id: '1',
-    text: 'What is the capital of France?',
-    options: [
-      { label: 'A', text: 'London' },
-      { label: 'B', text: 'Paris' },
-      { label: 'C', text: 'Berlin' },
-      { label: 'D', text: 'Madrid' },
-    ],
-    correctAnswer: 'B',
-  },
-  {
-    id: '2',
-    text: 'Which planet is closest to the Sun?',
-    options: [
-      { label: 'A', text: 'Venus' },
-      { label: 'B', text: 'Earth' },
-      { label: 'C', text: 'Mercury' },
-      { label: 'D', text: 'Mars' },
-    ],
-    correctAnswer: 'C',
-  },
-  {
-    id: '3',
-    text: 'What is the largest ocean on Earth?',
-    options: [
-      { label: 'A', text: 'Atlantic Ocean' },
-      { label: 'B', text: 'Arctic Ocean' },
-      { label: 'C', text: 'Indian Ocean' },
-      { label: 'D', text: 'Pacific Ocean' },
-    ],
-    correctAnswer: 'D',
-  },
-  {
-    id: '4',
-    text: 'In what year did the Titanic sink?',
-    options: [
-      { label: 'A', text: '1912' },
-      { label: 'B', text: '1905' },
-      { label: 'C', text: '1920' },
-      { label: 'D', text: '1898' },
-    ],
-    correctAnswer: 'A',
-  },
-  {
-    id: '5',
-    text: 'What is the chemical symbol for Gold?',
-    options: [
-      { label: 'A', text: 'Gd' },
-      { label: 'B', text: 'Go' },
-      { label: 'C', text: 'Au' },
-      { label: 'D', text: 'Ag' },
-    ],
-    correctAnswer: 'C',
-  },
-]
-
-const TIMER_DURATION = 10 // seconds per question
-
-/**
- * Quiz Page - Gameplay Screen
- * 
+ * Quiz Page - Real-Time Gameplay Screen
+ *
  * Features:
- * - Display questions with 4 multiple choice options
- * - Countdown timer per question
- * - Select and highlight chosen option
- * - Clean, minimal UI with premium feel
- * - Local state management (no real-time sync)
+ * - Real-time questions from server via Socket.IO
+ * - Submit answers to backend for validation
+ * - Receive instant feedback (correct/incorrect) with visual indicators
+ * - Countdown timer that stops after answering
+ * - Auto-advance to next question
+ * - Navigate to results when game ends
  */
 const Quiz: FC = () => {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
 
   // State management
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
-  const [timer, setTimer] = useState(TIMER_DURATION)
-  const [showFeedback, setShowFeedback] = useState(false)
+  const [timer, setTimer] = useState<number>(10)
   const [isAnswered, setIsAnswered] = useState(false)
+  const [feedback, setFeedback] = useState<AnswerFeedback | null>(null)
+  const [currentScore, setCurrentScore] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Get current question
-  const currentQuestion = MOCK_QUESTIONS[currentQuestionIndex]
-  const isLastQuestion = currentQuestionIndex === MOCK_QUESTIONS.length - 1
+  // Ref to track if answer has been submitted for current question (prevents double submit)
+  const submittedRef = useRef(false)
+
+  /**
+   * Submit Answer to Server
+   * Wrapped in useCallback so it's stable for the timer effect
+   */
+  const handleSubmitAnswer = useCallback(
+    (optionLabel: string | null) => {
+      if (submittedRef.current || !currentQuestion || !roomId) return
+
+      const userId = getUserId()
+      if (!userId) {
+        setError('User ID not found')
+        return
+      }
+
+      console.log(
+        `📤 Submitting answer: ${optionLabel || 'TIMEOUT'} for Q${currentQuestion.questionIndex + 1}`
+      )
+
+      submittedRef.current = true
+      setIsAnswered(true)
+      if (optionLabel) setSelectedOption(optionLabel)
+
+      // Emit answer to server
+      emitEvent('submit_answer', {
+        roomId,
+        userId,
+        selectedAnswer: optionLabel || 'SKIPPED',
+      })
+    },
+    [currentQuestion, roomId]
+  )
+
+  // Socket initialization
+  useEffect(() => {
+    if (!roomId) return
+
+    initializeSocket()
+
+    console.log('🎮 Quiz component mounted, waiting for questions...')
+
+    /**
+     * Handle send_question event from server
+     * Resets all state for the new question
+     */
+    const handleSendQuestion = (data: Question) => {
+      console.log('📤 Received question:', data)
+      setCurrentQuestion(data)
+      setSelectedOption(null)
+      setFeedback(null)
+      setIsAnswered(false)
+      submittedRef.current = false
+      setTimer(data.timeLimit)
+      setLoading(false)
+      setError(null)
+    }
+
+    /**
+     * Handle answer_feedback event from server
+     * Shows correct/incorrect feedback with visual indicators
+     */
+    const handleAnswerFeedback = (data: AnswerFeedback) => {
+      console.log('📬 Answer feedback:', data)
+      setFeedback(data)
+      setCurrentScore(data.currentScore)
+    }
+
+    /**
+     * Handle game_over event from server
+     * Quiz is complete, navigate to results
+     */
+    const handleGameOver = (data: { leaderboard: any[]; totalQuestions: number }) => {
+      console.log('🏁 Game over! Leaderboard:', data)
+      navigate(`/results/${roomId}`, {
+        state: { leaderboard: data.leaderboard, totalQuestions: data.totalQuestions },
+      })
+    }
+
+    /**
+     * Handle errors from server
+     */
+    const handleError = (data: { message: string }) => {
+      console.error('❌ Server error:', data.message)
+      setError(data.message)
+      setLoading(false)
+    }
+
+    /**
+     * Handle room_destroyed event
+     */
+    const handleRoomDestroyed = () => {
+      console.log('🚨 Room destroyed! Redirecting to lobby...')
+      setError('The room has been destroyed by the host.')
+      setTimeout(() => {
+        navigate('/lobby')
+      }, 2000)
+    }
+
+    // Register listeners
+    onEvent('send_question', handleSendQuestion)
+    onEvent('answer_feedback', handleAnswerFeedback)
+    onEvent('game_over', handleGameOver)
+    onEvent('error', handleError)
+    onEvent('room_destroyed', handleRoomDestroyed)
+
+    // Cleanup
+    return () => {
+      const socket = initializeSocket()
+      socket.off('send_question')
+      socket.off('answer_feedback')
+      socket.off('game_over')
+      socket.off('error')
+      socket.off('room_destroyed')
+    }
+  }, [roomId, navigate])
 
   /**
    * Timer Effect
-   * Decrements timer every second
-   * Automatically advances to next question when time runs out
+   * Counts down every second. Stops when answered.
+   * Auto-submits when timer reaches 0.
    */
   useEffect(() => {
-    if (isAnswered) return
+    if (!currentQuestion || isAnswered) return
 
-    if (timer === 0) {
-      // Time's up, move to next question
-      handleNextQuestion()
+    if (timer <= 0) {
+      // Time is up — auto-submit empty answer
+      console.log('⏱️ Time up! Auto-submitting...')
+      handleSubmitAnswer(null)
       return
     }
 
-    const timerInterval = setInterval(() => {
+    const interval = setInterval(() => {
       setTimer((prev) => prev - 1)
     }, 1000)
 
-    return () => clearInterval(timerInterval)
-  }, [timer, isAnswered])
+    return () => clearInterval(interval)
+  }, [timer, isAnswered, currentQuestion, handleSubmitAnswer])
 
   /**
-   * Handle Option Selection
-   * Shows feedback briefly, then moves to next question
+   * Handle Option Selection — Select or submit directly
    */
   const handleSelectOption = (optionLabel: string) => {
-    if (isAnswered) return
-
+    if (isAnswered || !currentQuestion) return
     setSelectedOption(optionLabel)
-    setIsAnswered(true)
-    setShowFeedback(true)
-
-    // Wait 1.5 seconds to show feedback, then move to next
-    setTimeout(() => {
-      handleNextQuestion()
-    }, 1500)
   }
 
   /**
-   * Move to Next Question
-   * Resets state for new question or ends quiz
+   * Get option visual state for feedback
    */
-  const handleNextQuestion = () => {
-    if (isLastQuestion) {
-      // Quiz complete - navigate to results
-      navigate(`/results/${roomId}`)
-      return
+  const getOptionStyle = (optionLabel: string) => {
+    const isSelected = selectedOption === optionLabel
+
+    // No feedback yet — normal selection state
+    if (!feedback) {
+      if (isSelected) {
+        return 'bg-white/20 border-white/60 ring-1 ring-white/30'
+      }
+      return 'bg-white/5 hover:bg-white/10 border-white/15 hover:border-white/30'
     }
 
-    // Reset state for next question
-    setCurrentQuestionIndex((prev) => prev + 1)
-    setSelectedOption(null)
-    setTimer(TIMER_DURATION)
-    setShowFeedback(false)
-    setIsAnswered(false)
-  }
+    // Feedback received — show correct answer in green
+    const isCorrectAnswer = optionLabel === feedback.correctAnswer
 
-  /**
-   * Check if selected option is correct
-   */
-  const isCorrect = selectedOption === currentQuestion.correctAnswer
+    if (isCorrectAnswer) {
+      return 'bg-emerald-500/20 border-emerald-400/60 ring-1 ring-emerald-400/30'
+    }
+
+    // User selected wrong answer — highlight in red
+    if (isSelected && !feedback.correct) {
+      return 'bg-red-500/20 border-red-400/60 ring-1 ring-red-400/30'
+    }
+
+    // Other options — dimmed
+    return 'bg-white/3 border-white/10 opacity-50'
+  }
 
   /**
    * Format timer display
-   * Shows seconds with leading zero if needed
    */
   const timerDisplay = timer.toString().padStart(2, '0')
+  const isLastQuestion =
+    currentQuestion && currentQuestion.questionIndex === currentQuestion.totalQuestions - 1
+
+  // Loading state
+  if (loading && !currentQuestion) {
+    return (
+      <div
+        className="min-h-screen relative overflow-hidden flex items-center justify-center"
+        style={{
+          backgroundImage: 'url(/background.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          backgroundAttachment: 'fixed',
+        }}
+      >
+        <div className="absolute inset-0 bg-black/20 pointer-events-none" />
+        <div className="relative z-10 text-center">
+          <div className="w-10 h-10 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-white mb-2">Loading quiz...</h2>
+          <p className="text-gray-400 text-sm">Waiting for first question</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div
+        className="min-h-screen relative overflow-hidden flex items-center justify-center"
+        style={{
+          backgroundImage: 'url(/background.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          backgroundAttachment: 'fixed',
+        }}
+      >
+        <div className="absolute inset-0 bg-black/20 pointer-events-none" />
+        <div className="relative z-10 text-center max-w-md">
+          <div className="rounded-2xl bg-white/10 border border-white/20 backdrop-blur-xl p-10 shadow-2xl">
+            <h2 className="text-2xl font-bold text-red-400 mb-3">Error</h2>
+            <p className="text-gray-300 mb-6 text-sm">{error}</p>
+            <button
+              onClick={() => navigate('/lobby')}
+              className="px-6 py-2.5 rounded-lg bg-white/10 hover:bg-white/15 text-white font-medium text-sm border border-white/20 transition-all"
+            >
+              Back to Lobby
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // No question yet
+  if (!currentQuestion) {
+    return null
+  }
 
   return (
     <div
@@ -187,77 +307,70 @@ const Quiz: FC = () => {
       {/* ==================== OVERLAY ==================== */}
       <div className="absolute inset-0 bg-black/20 pointer-events-none" />
 
+      {/* ==================== PROGRESS BAR ==================== */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-white/5 z-30">
+        <div
+          className="h-full bg-white/40 transition-all duration-500 ease-out"
+          style={{
+            width: `${((currentQuestion.questionIndex + 1) / currentQuestion.totalQuestions) * 100}%`,
+          }}
+        />
+      </div>
+
       {/* ==================== TIMER (TOP-RIGHT) ==================== */}
-      <div className="absolute top-8 right-8 z-20">
-        <div className="flex items-center gap-3 px-6 py-3 rounded-lg bg-white/10 border border-white/20 backdrop-blur-md">
-          <Clock className="w-5 h-5 text-white" />
-          <div className="flex items-baseline gap-1">
-            <span className={`text-3xl font-bold font-mono transition-colors ${
-              timer <= 3 ? 'text-red-400' : 'text-white'
-            }`}>
-              {timerDisplay}
-            </span>
-            <span className="text-sm text-gray-300">sec</span>
-          </div>
+      <div className="absolute top-6 right-6 z-20">
+        <div
+          className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl backdrop-blur-md border transition-all duration-300 ${
+            isAnswered
+              ? 'bg-white/5 border-white/10'
+              : timer <= 3
+                ? 'bg-red-500/15 border-red-500/30'
+                : 'bg-white/10 border-white/20'
+          }`}
+        >
+          <Clock className={`w-4 h-4 ${isAnswered ? 'text-gray-500' : timer <= 3 ? 'text-red-400' : 'text-white'}`} />
+          <span
+            className={`text-2xl font-bold font-mono transition-colors ${
+              isAnswered ? 'text-gray-500' : timer <= 3 ? 'text-red-400' : 'text-white'
+            }`}
+          >
+            {isAnswered ? '—' : timerDisplay}
+          </span>
         </div>
       </div>
 
-      {/* ==================== PROGRESS BAR ==================== */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-white/5">
-        <div
-          className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
-          style={{
-            width: `${((currentQuestionIndex + 1) / MOCK_QUESTIONS.length) * 100}%`,
-          }}
-        />
+      {/* ==================== SCORE (TOP-LEFT) ==================== */}
+      <div className="absolute top-6 left-6 z-20">
+        <div className="px-5 py-2.5 rounded-xl bg-white/10 border border-white/20 backdrop-blur-md">
+          <p className="text-xs text-gray-400 mb-0.5">Score</p>
+          <p className="text-xl font-bold text-white">{currentScore}</p>
+        </div>
       </div>
 
       {/* ==================== MAIN CONTENT ==================== */}
       <div className="relative z-10 w-full max-w-2xl px-6 py-8">
         {/* Question Counter */}
-        <div className="mb-8 text-center">
-          <p className="text-sm font-medium text-gray-400 mb-2">
-            Question {currentQuestionIndex + 1} of {MOCK_QUESTIONS.length}
+        <div className="mb-6 text-center">
+          <p className="text-sm font-medium text-gray-400">
+            Question {currentQuestion.questionIndex + 1} of {currentQuestion.totalQuestions}
           </p>
         </div>
 
         {/* Glass Card Container */}
         <div className="rounded-2xl bg-white/10 border border-white/20 backdrop-blur-xl p-8 md:p-10 shadow-2xl">
           {/* Question Text */}
-          <div className="mb-10">
-            <h2 className="text-2xl md:text-3xl font-bold text-white leading-tight">
-              {currentQuestion.text}
+          <div className="mb-8">
+            <h2 className="text-xl md:text-2xl font-bold text-white leading-relaxed">
+              {currentQuestion.question}
             </h2>
           </div>
 
           {/* Options Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
             {currentQuestion.options.map((option) => {
               const isSelected = selectedOption === option.label
-              const isCorrectOption = option.label === currentQuestion.correctAnswer
-
-              // Determine styling based on state
-              let bgColor = 'bg-white/5 hover:bg-white/10 border-white/20'
-              let textColor = 'text-white'
-
-              if (showFeedback) {
-                if (isCorrectOption) {
-                  // Always show correct answer in green
-                  bgColor = 'bg-green-500/30 border-green-500/60'
-                  textColor = 'text-white'
-                } else if (isSelected && !isCorrect) {
-                  // Show wrong answer user selected in red
-                  bgColor = 'bg-red-500/30 border-red-500/60'
-                  textColor = 'text-white'
-                } else {
-                  // Other unselected options fade out
-                  bgColor = 'bg-white/5 border-white/10'
-                  textColor = 'text-gray-400'
-                }
-              } else if (isSelected) {
-                // Before answering, highlight selected option
-                bgColor = 'bg-blue-500/30 border-blue-500/60'
-              }
+              const isCorrectAnswer = feedback && option.label === feedback.correctAnswer
+              const isWrongSelected = feedback && isSelected && !feedback.correct
 
               return (
                 <button
@@ -265,63 +378,87 @@ const Quiz: FC = () => {
                   onClick={() => handleSelectOption(option.label)}
                   disabled={isAnswered}
                   className={`
-                    relative p-5 rounded-xl border-2 transition-all duration-200
-                    ${bgColor} ${textColor}
-                    disabled:cursor-not-allowed text-left
-                    group
+                    relative p-4 rounded-xl border-2 transition-all duration-300
+                    ${getOptionStyle(option.label)} text-white
+                    disabled:cursor-default text-left
                   `}
                 >
-                  {/* Option Label */}
-                  <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white/10 flex items-center justify-center font-bold text-sm">
-                      {option.label}
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs transition-colors ${
+                        feedback && isCorrectAnswer
+                          ? 'bg-emerald-500/30 text-emerald-300'
+                          : isWrongSelected
+                            ? 'bg-red-500/30 text-red-300'
+                            : isSelected && !feedback
+                              ? 'bg-white/25 text-white'
+                              : 'bg-white/10 text-gray-300'
+                      }`}
+                    >
+                      {feedback && isCorrectAnswer ? (
+                        <CheckCircle className="w-4 h-4" />
+                      ) : isWrongSelected ? (
+                        <XCircle className="w-4 h-4" />
+                      ) : (
+                        option.label
+                      )}
                     </div>
                     <div className="flex-grow pt-0.5">
-                      <p className="font-medium">{option.text}</p>
+                      <p className="font-medium text-sm">{option.text}</p>
                     </div>
                   </div>
-
-                  {/* Feedback Icon */}
-                  {showFeedback && isCorrectOption && (
-                    <div className="absolute top-4 right-4 text-green-400">
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                  )}
-
-                  {showFeedback && isSelected && !isCorrect && (
-                    <div className="absolute top-4 right-4 text-red-400">
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                  )}
                 </button>
               )
             })}
           </div>
 
-          {/* Feedback Message */}
-          {showFeedback && (
+          {/* Submit Button or Feedback */}
+          {!isAnswered ? (
+            <button
+              onClick={() => handleSubmitAnswer(selectedOption)}
+              disabled={!selectedOption}
+              className={`
+                w-full py-3 rounded-xl font-medium text-sm transition-all duration-200
+                ${
+                  selectedOption
+                    ? 'bg-white/90 hover:bg-white text-black active:scale-[0.98]'
+                    : 'bg-white/10 text-gray-500 cursor-not-allowed border border-white/10'
+                }
+              `}
+            >
+              Submit Answer
+            </button>
+          ) : feedback ? (
             <div
-              className={`text-center py-3 px-4 rounded-lg font-medium transition-all ${
-                isCorrect
-                  ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-                  : 'bg-red-500/20 text-red-300 border border-red-500/30'
+              className={`text-center py-3 px-4 rounded-xl border transition-all duration-300 ${
+                feedback.correct
+                  ? 'bg-emerald-500/15 border-emerald-500/30'
+                  : 'bg-red-500/15 border-red-500/30'
               }`}
             >
-              {isCorrect ? '✓ Correct!' : '✗ Incorrect'}
+              <div className="flex items-center justify-center gap-2">
+                {feedback.correct ? (
+                  <CheckCircle className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-red-400" />
+                )}
+                <p className={`font-medium text-sm ${feedback.correct ? 'text-emerald-300' : 'text-red-300'}`}>
+                  {feedback.correct ? 'Correct!' : `Wrong — answer was ${feedback.correctAnswer}`}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-3 px-4 rounded-xl bg-white/5 border border-white/10">
+              <p className="text-gray-400 text-sm">Submitting...</p>
             </div>
           )}
         </div>
 
-        {/* Question Navigation Info */}
-        <div className="mt-8 text-center text-sm text-gray-400">
-          {isAnswered && !isLastQuestion && (
-            <p>Next question in {TIMER_DURATION}s...</p>
+        {/* Status Info */}
+        <div className="mt-6 text-center text-xs text-gray-500">
+          {isAnswered && feedback && (
+            <p>{isLastQuestion ? 'Quiz complete! Preparing results...' : 'Next question loading...'}</p>
           )}
-          {isAnswered && isLastQuestion && <p>Quiz complete! Preparing results...</p>}
         </div>
       </div>
     </div>

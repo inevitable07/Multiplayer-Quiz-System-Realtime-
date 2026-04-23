@@ -54,7 +54,7 @@ const AppRoutes: FC = () => {
 
         {/* Protected Routes - Room with Dynamic ID */}
         <Route
-          path="/room/:id"
+          path="/room/:roomId"
           element={
             <ProtectedRoute>
               <Room />

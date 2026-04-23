@@ -1,7 +1,7 @@
 import { FC, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import apiClient from '../services/api'
-import { setToken } from '../utils/auth'
+import { setToken, setUsername } from '../utils/auth'
 
 /**
  * Auth Page
@@ -24,6 +24,7 @@ const Auth: FC = () => {
   })
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [forgotPasswordMsg, setForgotPasswordMsg] = useState('')
 
   // Dynamic gradient based on mode
   const gradientClass = isLogin
@@ -71,6 +72,7 @@ const Auth: FC = () => {
       // Extract token and user data from response
       const { data } = response
       const token = data.data?.token || data.token
+      const username = data.data?.username || data.username || ''
 
       if (!token) {
         setError('No authentication token received. Please try again.')
@@ -78,8 +80,9 @@ const Auth: FC = () => {
         return
       }
 
-      // Store token in localStorage using utility function
+      // Store token AND username in localStorage
       setToken(token)
+      if (username) setUsername(username)
 
       // Update axios default header for future requests
       apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`
@@ -179,12 +182,20 @@ const Auth: FC = () => {
             {/* Login Only: Forgot Password */}
             {isLogin && (
               <div className="text-right">
-                <a
-                  href="#"
-                  className="text-sm text-black hover:underline font-medium"
-                >
-                  Forgot password?
-                </a>
+                {forgotPasswordMsg ? (
+                  <p className="text-sm text-blue-600 font-medium">{forgotPasswordMsg}</p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotPasswordMsg('Password reset is not yet available. Please contact support.')
+                      setTimeout(() => setForgotPasswordMsg(''), 4000)
+                    }}
+                    className="text-sm text-black hover:underline font-medium"
+                  >
+                    Forgot password?
+                  </button>
+                )}
               </div>
             )}
 
@@ -215,7 +226,9 @@ const Auth: FC = () => {
           {/* Google OAuth Button */}
           <button
             type="button"
-            className="btn-secondary w-full flex items-center justify-center gap-3 text-lg"
+            onClick={() => setError('Google sign-in is not yet configured. Please use email and password.')}
+            className="btn-secondary w-full flex items-center justify-center gap-3 text-lg opacity-70 cursor-not-allowed"
+            title="Google sign-in coming soon"
           >
             {/* Google Icon */}
             <svg

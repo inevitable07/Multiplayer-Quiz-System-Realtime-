@@ -5,6 +5,7 @@ import cors from "cors";
 import healthRoute from "./routes/health.route";
 import authRoute from "./routes/auth.route";
 import roomRoute from "./routes/room.route";
+import quizRoute from "./routes/quiz.route";
 
 /**
  * Initialize and configure Express app
@@ -44,12 +45,34 @@ app.use("/api/auth", authRoute);
 // Room management routes
 app.use("/api/room", roomRoute);
 
-// Example: Protected routes (uncomment to enable)
-// import protectedRoutes from "./routes/protected.route";
-// app.use("/api/protected", protectedRoutes);
+// Quiz management routes
+app.use("/api/quiz", quizRoute);
 
-// Add more routes here as modules expand
-// app.use("/api/quizzes", quizRoute);
+// ==================== Multer Error Handler ====================
+
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Handle multer errors
+  if (err.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({
+      success: false,
+      message: "File size exceeds 10MB limit",
+    });
+  }
+  if (err.message === "Only .csv files are allowed") {
+    return res.status(400).json({
+      success: false,
+      message: "Only .csv files are supported",
+    });
+  }
+  if (err.message?.includes("MIME type")) {
+    return res.status(400).json({
+      success: false,
+      message: "Only .csv files are supported",
+    });
+  }
+  // Pass to next error handler
+  _next(err);
+});
 
 // ==================== 404 Handler ====================
 
