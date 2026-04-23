@@ -1,0 +1,19 @@
+/**
+ * UI Components Placeholder
+ * 
+ * This folder will contain reusable UI components like:
+ * - Buttons
+ * - Input fields
+ * - Modals
+ * - Cards
+ * - Forms
+ * - Alerts
+ * 
+ * Example structure:
+ * - Button.tsx
+ * - Input.tsx
+ * - Modal.tsx
+ * - Card.tsx
+ */
+
+// Placeholder

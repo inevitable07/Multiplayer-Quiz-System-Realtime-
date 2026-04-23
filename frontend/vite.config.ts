@@ -6,7 +6,7 @@ import type { UserConfig } from 'vite'
 const config: UserConfig = defineConfig({
   plugins: [react()],
   server: {
-    port: 3000,
+    port: 5173,
   },
 })
 

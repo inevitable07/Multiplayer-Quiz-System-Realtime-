@@ -1,0 +1,19 @@
+/**
+ * Shared Components Placeholder
+ * 
+ * This folder will contain components shared across multiple pages like:
+ * - Header/Navigation
+ * - Footer
+ * - Sidebar
+ * - Loading spinner
+ * - Error boundary
+ * - Layout wrappers
+ * 
+ * Example structure:
+ * - Header.tsx
+ * - Navigation.tsx
+ * - Loading.tsx
+ * - ErrorBoundary.tsx
+ */
+
+// Placeholder

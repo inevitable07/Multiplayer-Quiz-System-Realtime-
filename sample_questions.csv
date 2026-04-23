@@ -1,0 +1,11 @@
+question,option1,option2,option3,option4,answer
+"What is the capital of France?","London","Berlin","Paris","Madrid","C"
+"Which planet is closest to the sun?","Mercury","Venus","Earth","Mars","A"
+"What is 5 x 5?","20","25","30","35","B"
+"Which language is used for web development?","Java","Python","JavaScript","C++","C"
+"What does HTML stand for?","Hyper Text Markup Language","High Tech Modern Language","Home Tool Markup Language","Hyperlinks and Text Markup Language","A"
+"Which of these is a NoSQL database?","MySQL","PostgreSQL","MongoDB","Oracle","C"
+"What is the time complexity of binary search?","O(n)","O(log n)","O(n log n)","O(1)","B"
+"Which keyword is used for inheritance in Java?","implements","extends","inherits","super","B"
+"What is the default value of a boolean in Java?","true","false","0","null","B"
+"Which sorting algorithm is most efficient?","Bubble Sort","Quick Sort","Selection Sort","Insertion Sort","B"
