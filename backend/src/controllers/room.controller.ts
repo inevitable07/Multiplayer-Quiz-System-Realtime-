@@ -452,8 +452,8 @@ export const addQuestion = async (
 
 /**
  * Upload Questions Controller
- * Handles bulk question upload via DOCX file
- * Parses DOCX content and creates multiple questions
+ * Handles bulk question upload via CSV file
+ * Parses CSV content and creates multiple questions
  */
 export const uploadQuestions = async (
   req: AuthenticatedRequest,

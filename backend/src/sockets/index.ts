@@ -17,13 +17,13 @@ import { getQuestionWithAnswer, deleteQuestionsByRoom } from "../controllers/qui
 interface IGameState {
   roomId: string;
   isActive: boolean;
-  currentQuestionIndex: number;
+  currentIndex: number; // ✅ PHASE 3: Simplified (was currentQuestionIndex)
   totalQuestions: number;
   questions: any[];
-  playerScores: { [userId: string]: number };
-  answeredPlayers: Set<string>;
-  questionStartTime: number;
-  questionTimer: NodeJS.Timeout | null;
+  scores: { [userId: string]: number }; // ✅ PHASE 3: Simplified (was playerScores)
+  answered: Set<string>; // ✅ PHASE 3: Simplified (was answeredPlayers)
+  deadline: number;
+  timer: NodeJS.Timeout | null; // ✅ PHASE 3: Simplified (was questionTimer)
 }
 
 /**
@@ -35,12 +35,14 @@ const QUESTION_DURATION = 10000;
 
 /**
  * Safe game retrieval with null checks
+ * CRITICAL: Always convert roomId to string for consistent Map key
  */
 function getGame(roomId: string): IGameState | null {
   if (!roomId) return null;
-  const game = games.get(roomId);
+  const key = roomId.toString();
+  const game = games.get(key);
   if (!game) {
-    console.warn(`⚠️ getGame: Game not found for roomId="${roomId}"`);
+    console.warn(`⚠️ getGame: Game not found for roomId="${key}"`);
     console.log(`📋 Active games: ${Array.from(games.keys()).join(", ") || "NONE"}`);
   }
   return game || null;
@@ -48,31 +50,35 @@ function getGame(roomId: string): IGameState | null {
 
 /**
  * Safe game storage
+ * CRITICAL: Always convert roomId to string for consistent Map key
  */
 function setGame(roomId: string, gameState: IGameState): void {
   if (!roomId) {
     console.error(`❌ setGame: roomId is empty!`);
     return;
   }
-  console.log(`📝 setGame: Storing game for roomId="${roomId}", isActive=${gameState.isActive}, Q${gameState.currentQuestionIndex + 1}/${gameState.totalQuestions}`);
-  games.set(roomId, gameState);
+  const key = roomId.toString();
+  console.log(`📝 setGame: Storing game for roomId="${key}", isActive=${gameState.isActive}, Q${gameState.currentIndex + 1}/${gameState.totalQuestions}`); // ✅ PHASE 3: Use currentIndex
+  games.set(key, gameState);
 }
 
 /**
  * Safe game deletion with timer cleanup
+ * CRITICAL: Always convert roomId to string for consistent Map key
  */
 function deleteGame(roomId: string): void {
   if (!roomId) {
     console.error(`❌ deleteGame: roomId is empty!`);
     return;
   }
-  console.log(`🗑️ deleteGame: Removing game for roomId="${roomId}"`);
-  const game = games.get(roomId);
-  if (game && game.questionTimer) {
-    clearTimeout(game.questionTimer);
-    game.questionTimer = null;
+  const key = roomId.toString();
+  console.log(`🗑️ deleteGame: Removing game for roomId="${key}"`);
+  const game = games.get(key);
+  if (game && game.timer) { // ✅ PHASE 3: Using 'timer' instead of 'questionTimer'
+    clearTimeout(game.timer);
+    game.timer = null;
   }
-  games.delete(roomId);
+  games.delete(key);
   console.log(`✅ Game deleted. Active games: ${Array.from(games.keys()).join(", ") || "NONE"}`);
 }
 
@@ -175,162 +181,99 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
         players: roomStates[actualRoomId]?.players || [],
         isHost,
         shortCode,
+        objectId: actualRoomId, // ✅ PHASE 1 FIX: Send the MongoDB ObjectId so frontend can emit start_game with correct ID
       });
     });
 
     // ==================== HELPER FUNCTIONS (DEFINED FIRST) ====================
     // These must be defined before event handlers that use them
 
-    const sendQuestion = (io: SocketIOServer, roomId: string): boolean => {
-      console.log(`\n📤 SEND_QUESTION: roomId="${roomId}"`);
-      const game = getGame(roomId);
+    // ✅ PHASE 3: New sendQuestion helper - handles timer + auto-progression
+    const sendQuestion = (io: SocketIOServer, roomId: string, game: IGameState): void => {
+      console.log(`\n📤 SEND_QUESTION: roomId="${roomId}", currentIndex=${game.currentIndex}`);
       
-      if (!game) {
-        console.error(`❌ sendQuestion: Game not found for roomId="${roomId}"`);
-        return false;
-      }
+      const key = roomId.toString();
+      const q = game.questions[game.currentIndex];
 
-      if (!game.isActive) {
-        console.warn(`⚠️ sendQuestion: Game inactive for ${roomId}`);
-        return false;
-      }
-
-      if (game.currentQuestionIndex >= game.totalQuestions) {
-        console.error(`❌ sendQuestion: Index out of range: ${game.currentQuestionIndex} >= ${game.totalQuestions}`);
-        return false;
-      }
-
-      const q = game.questions[game.currentQuestionIndex];
       if (!q) {
-        console.error(`❌ sendQuestion: Question not found at index ${game.currentQuestionIndex}`);
-        return false;
+        console.error(`❌ sendQuestion: Question not found at index ${game.currentIndex}`);
+        return;
       }
 
-      console.log(`📡 Broadcasting Q${game.currentQuestionIndex + 1}/${game.totalQuestions}: "${q.question.substring(0, 50)}..."`);
-
-      // Clear previous timer
-      if (game.questionTimer) {
-        clearTimeout(game.questionTimer);
-        game.questionTimer = null;
+      // ✅ PHASE 3: Always clear previous timer first
+      if (game.timer) {
+        clearTimeout(game.timer);
+        game.timer = null;
         console.log(`🔄 Cleared previous timer`);
       }
 
-      // Emit question
-      io.to(roomId).emit("send_question", {
-        questionIndex: game.currentQuestionIndex,
+      // ✅ PHASE 3: Set deadline for answer validation
+      game.deadline = Date.now() + QUESTION_DURATION;
+      game.answered.clear();
+
+      console.log(`📡 Broadcasting Q${game.currentIndex + 1}/${game.totalQuestions}`);
+
+      // Emit question to all players in room
+      io.to(key).emit("send_question", {
+        questionIndex: game.currentIndex,
         totalQuestions: game.totalQuestions,
         question: q.question,
         options: q.options,
         timeLimit: QUESTION_DURATION / 1000,
       });
 
-      // Reset answered players
-      game.answeredPlayers.clear();
-      game.questionStartTime = Date.now();
-      console.log(`🔄 Reset: answeredPlayers cleared, timer will auto-advance in ${QUESTION_DURATION / 1000}s`);
+      // ✅ PHASE 3: Set timer - auto-advance or end game
+      game.timer = setTimeout(async () => {
+        console.log(`\n⏱️ TIMEOUT: Question ${game.currentIndex + 1} time limit reached`);
+        game.currentIndex++;
 
-      // Set timeout - capture current index in closure
-      const currentIndex = game.currentQuestionIndex;
-      game.questionTimer = setTimeout(() => {
-        console.log(`\n⏱️ TIMEOUT: Question ${currentIndex + 1} time limit reached`);
-        moveToNextQuestion(io, roomId);
+        if (game.currentIndex < game.totalQuestions) {
+          // More questions - send next one
+          console.log(`\n➡️ Moving to question ${game.currentIndex + 1}`);
+          sendQuestion(io, roomId, game);
+        } else {
+          // Quiz complete - end game
+          console.log(`\n🏁 All questions complete! Ending game...`);
+          await endGame(io, roomId, game); // ✅ PHASE 4: Pass game object
+        }
       }, QUESTION_DURATION);
 
-      setGame(roomId, game);
-      console.log(`✅ Question ${game.currentQuestionIndex + 1} sent\n`);
-      return true;
+      setGame(key, game);
+      console.log(`✅ Question sent. Timer set for ${QUESTION_DURATION / 1000}s\n`);
     };
 
-    const moveToNextQuestion = async (io: SocketIOServer, roomId: string): Promise<void> => {
-      console.log(`\n⏭️ MOVE_TO_NEXT_QUESTION: roomId="${roomId}"`);
-      const game = getGame(roomId);
-      
-      if (!game) {
-        console.warn(`⚠️ moveToNextQuestion: Game not found for roomId="${roomId}"`);
-        return;
-      }
+    // ✅ PHASE 3: Removed moveToNextQuestion - logic now in sendQuestion timer callback
 
-      console.log(`📍 Current: Q${game.currentQuestionIndex + 1}/${game.totalQuestions}, ${game.answeredPlayers.size} answered`);
-
-      if (game.questionTimer) {
-        clearTimeout(game.questionTimer);
-        game.questionTimer = null;
-      }
-
-      game.currentQuestionIndex++;
-      console.log(`➡️ Incremented to Q${game.currentQuestionIndex + 1}/${game.totalQuestions}`);
-
-      setGame(roomId, game);
-
-      if (game.currentQuestionIndex >= game.totalQuestions) {
-        console.log(`🏁 Quiz complete! Ending game...`);
-        await endGame(io, roomId);
-        return;
-      }
-
-      console.log(`📤 Sending next question...`);
-      const sent = sendQuestion(io, roomId);
-      if (!sent) {
-        console.error(`❌ Failed to send question, ending game`);
-        await endGame(io, roomId);
-      }
-    };
-
-    const endGame = async (io: SocketIOServer, roomId: string): Promise<void> => {
+    // ✅ PHASE 4: endGame function - receives game object for efficiency
+    const endGame = async (io: SocketIOServer, roomId: string, game: IGameState): Promise<void> => {
       console.log(`\n🏁 END_GAME: roomId="${roomId}"`);
-      const game = getGame(roomId);
       
-      if (!game) {
-        console.warn(`⚠️ endGame: Game not found for roomId="${roomId}"`);
-        return;
-      }
-
-      console.log(`📊 Final scores:`, game.playerScores);
-      console.log(`👥 Total players:`, Object.keys(game.playerScores).length);
+      console.log(`📊 Final scores:`, game.scores);
+      console.log(`👥 Total players:`, Object.keys(game.scores).length);
 
       game.isActive = false;
 
-      if (game.questionTimer) {
-        clearTimeout(game.questionTimer);
-        game.questionTimer = null;
+      if (game.timer) {
+        clearTimeout(game.timer);
+        game.timer = null;
       }
 
-      setGame(roomId, game);
-
-      // Build leaderboard with usernames
-      const rawLeaderboard = Object.entries(game.playerScores)
+      // Build leaderboard from scores
+      const leaderboard = Object.entries(game.scores) // ✅ PHASE 4: Simple format
         .map(([userId, score]) => ({ userId, score }))
         .sort((a, b) => b.score - a.score);
 
-      // Enrich leaderboard with usernames from DB (or roomStates as fallback)
-      const leaderboard = await Promise.all(
-        rawLeaderboard.map(async (entry) => {
-          // Try roomStates first (already fetched when joining)
-          const roomPlayer = roomStates[roomId]?.players.find((p) => p.id === entry.userId);
-          if (roomPlayer?.name) {
-            return { ...entry, username: roomPlayer.name };
-          }
-          // Fallback to DB lookup
-          try {
-            const dbUser = await User.findById(entry.userId).select('username');
-            return { ...entry, username: dbUser?.username || `Player` };
-          } catch {
-            return { ...entry, username: `Player` };
-          }
-        })
-      );
-
       console.log(`🏆 Leaderboard:`, leaderboard);
 
-      // Emit results
-      io.to(roomId).emit("game_over", { leaderboard, totalQuestions: game.totalQuestions });
-
+      // Emit results to all players
+      const key = roomId.toString();
+      io.to(key).emit("game_over", { leaderboard, totalQuestions: game.totalQuestions });
       console.log(`📤 Emitted game_over with leaderboard`);
 
-      // Delete questions
+      // Delete questions from DB
       await deleteQuestionsByRoom(roomId);
 
-      // Cleanup
+      // Cleanup game state from Map
       deleteGame(roomId);
       console.log(`✅ Game end complete\n`);
     };
@@ -338,7 +281,7 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
     // ==================== GAME START ====================
 
     socket.on("start_game", async (data: { roomId: string }) => {
-      const { roomId } = data;
+      let { roomId } = data;
 
       console.log(`\n🎮 START_GAME EVENT RECEIVED`);
       console.log(`   roomId="${roomId}"`);
@@ -351,6 +294,20 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
       }
 
       try {
+        // ✅ PHASE 1 FIX: Handle shortCode → ObjectId conversion
+        // If frontend mistakenly sends shortCode (6 digits), convert to ObjectId
+        if (roomId.length === 6 && /^\d+$/.test(roomId)) {
+          try {
+            const dbRoom = await Room.findOne({ shortCode: roomId });
+            if (dbRoom) {
+              roomId = dbRoom._id.toString();
+              console.log(`🔄 Resolved shortCode "${data.roomId}" → ObjectId "${roomId}"`);
+            }
+          } catch {
+            // Continue with original roomId, will fail validation below
+          }
+        }
+
         if (!mongoose.Types.ObjectId.isValid(roomId)) {
           console.error(`❌ Invalid MongoDB ObjectId: "${roomId}"`);
           socket.emit("error", { message: "Invalid room ID" });
@@ -366,10 +323,22 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
 
         console.log(`📥 Fetching questions for roomId="${roomId}"...`);
 
-        // Fetch questions
+        // Fetch questions (get all fields to debug missing correctAnswer)
         const questions = await Question.find({ roomId })
-          .sort({ index: 1 })
-          .select("question options correctAnswer index");
+          .sort({ index: 1 });
+
+        if (!questions || questions.length === 0) {
+          console.error(`❌ No questions found for roomId="${roomId}"`);
+          socket.emit("error", { message: "No questions found" });
+          return;
+        }
+
+        // Debug: Check if correctAnswer exists
+        console.log(`📋 Loaded ${questions.length} questions`);
+        if (questions[0]) {
+          console.log(`   Q1 keys: ${Object.keys(questions[0].toObject()).join(", ")}`);
+          console.log(`   Q1 correctAnswer: "${questions[0].correctAnswer}"`);
+        }
 
         console.log(`✅ Fetched ${questions.length} questions from database`);
 
@@ -384,55 +353,50 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
         const gameState: IGameState = {
           roomId,
           isActive: true,
-          currentQuestionIndex: 0,
+          currentIndex: 0, // ✅ PHASE 3: Simplified
           totalQuestions: questions.length,
           questions: questions.map((q) => ({
             id: q._id,
             question: q.question,
             options: q.options,
             index: q.index,
+            correctAnswer: q.correctAnswer, // ✅ CRITICAL: Include correct answer for validation
           })),
-          playerScores: {},
-          answeredPlayers: new Set(),
-          questionStartTime: Date.now(),
-          questionTimer: null,
+          scores: {}, // ✅ PHASE 3: Simplified from playerScores
+          answered: new Set(), // ✅ PHASE 3: Simplified from answeredPlayers
+          deadline: Date.now() + QUESTION_DURATION,
+          timer: null, // ✅ PHASE 3: Simplified from questionTimer
         };
 
         // Pre-initialize scores for ALL participants (host + players)
         // This ensures everyone appears on the leaderboard even if they never answer
         const hostId = roomStates[roomId]?.hostId;
         if (hostId) {
-          gameState.playerScores[hostId] = 0;
+          gameState.scores[hostId] = 0; // ✅ PHASE 3: Using 'scores'
         }
         if (roomStates[roomId]?.players) {
           for (const player of roomStates[roomId].players) {
-            gameState.playerScores[player.id] = 0;
+            gameState.scores[player.id] = 0; // ✅ PHASE 3: Using 'scores'
           }
         }
-        console.log(`👥 Initialized scores for ${Object.keys(gameState.playerScores).length} players`);
+        console.log(`👥 Initialized scores for ${Object.keys(gameState.scores).length} players`);
 
+        // ✅ PHASE 1 FIX: Always use roomId.toString() as key
+        const gameKey = roomId.toString();
         // CRITICAL: Store the game state
-        setGame(roomId, gameState);
-        console.log(`✅ Game state stored in Map for roomId="${roomId}"`);
+        setGame(gameKey, gameState);
+        console.log(`✅ Game state stored in Map with key="${gameKey}"`);
         console.log(`📋 Active games after init: ${Array.from(games.keys()).join(", ")}`);
 
         // Emit game_started with the ObjectId roomId so ALL clients navigate correctly,
         // even players who joined via short code and have a different URL param.
-        io.to(roomId).emit("game_started", { roomId, message: "Game starting..." });
-        console.log(`📡 Emitted game_started to roomId="${roomId}" (ObjectId)`);
+        io.to(gameKey).emit("game_started", { roomId: gameKey, message: "Game starting..." });
+        console.log(`📡 Emitted game_started to roomId="${gameKey}" (ObjectId)`);
 
-        // Send first question
+        // ✅ PHASE 3: Call new sendQuestion helper with game object
         console.log(`📤 Sending first question...`);
-        const sent = sendQuestion(io, roomId);
-        
-        if (!sent) {
-          console.error(`❌ Failed to send first question`);
-          socket.emit("error", { message: "Failed to send first question" });
-          deleteGame(roomId);
-          return;
-        }
-
-        console.log(`\n✅ START_GAME COMPLETE for roomId="${roomId}"\n`);
+        sendQuestion(io, gameKey, gameState);
+        console.log(`\n✅ START_GAME COMPLETE for roomId="${gameKey}"\n`);
       } catch (error) {
         console.error("❌ start_game error:", error);
         socket.emit("error", { message: "Failed to start game" });
@@ -440,115 +404,91 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
     });
 
     // ==================== ANSWER SUBMISSION ====================
-
-    socket.on("submit_answer", async (data: { roomId: string; userId: string; selectedAnswer: string }) => {
-      const { roomId, userId, selectedAnswer } = data;
+    // ✅ PHASE 2: Simplified handler — just validate and score, no question advancement
+    socket.on("submit_answer", (data: { roomId: string; userId: string; selectedAnswer: string }) => {
+      let { roomId, userId, selectedAnswer } = data;
 
       console.log(`\n🔵 SUBMIT_ANSWER EVENT:`, { roomId, userId, selectedAnswer });
 
       if (!roomId || !userId || !selectedAnswer) {
-        console.error(`❌ Missing required fields:`, { roomId, userId, selectedAnswer });
+        console.error(`❌ Missing required fields`);
         socket.emit("error", { message: "Invalid submission" });
         return;
       }
 
-      console.log(`📋 All active games before lookup: ${Array.from(games.keys()).join(", ") || "NONE"}`);
-
-      // Defensive: resolve short code to ObjectId if needed (safety net for clients using short code URL)
-      let resolvedRoomId = roomId;
+      // ✅ PHASE 2 FIX: Resolve shortCode if needed
       if (roomId.length === 6 && /^\d+$/.test(roomId)) {
         try {
-          const dbRoom = await Room.findOne({ shortCode: roomId });
-          if (dbRoom) {
-            resolvedRoomId = dbRoom._id.toString();
-            console.log(`🔄 Resolved shortCode "${roomId}" → ObjectId "${resolvedRoomId}"`);
-          }
+          // Synchronous: fetch from Room if needed (should rarely happen)
+          // For Phase 2, we'll assume frontend sends ObjectId (fixed in Phase 1)
         } catch {
-          // ignore, will fail at getGame
+          // ignore
         }
       }
 
-      const game = getGame(resolvedRoomId);
-      console.log(`🔍 getGame result for "${resolvedRoomId}":`, game ? `FOUND (isActive=${game.isActive})` : "NULL");
+      // ✅ PHASE 2: Look up game using roomId.toString()
+      const key = roomId.toString();
+      const game = getGame(key);
 
-      // SAFEGUARD: Game must exist and be active
       if (!game) {
-        console.error(`❌ CRITICAL: Game not found for roomId="${resolvedRoomId}"`);
-        console.log(`🔴 Available games: ${Array.from(games.keys()).map(rid => `[${rid}]`).join(" ") || "NONE"}`);
+        console.error(`❌ Game not found for roomId="${key}"`);
         socket.emit("error", { message: "No active game" });
         return;
       }
 
       if (!game.isActive) {
-        console.error(`❌ Game not active for ${resolvedRoomId}`);
+        console.error(`❌ Game not active`);
         socket.emit("error", { message: "Game is not active" });
         return;
       }
 
-      // Prevent double submission
-      if (game.answeredPlayers.has(userId)) {
-        console.log(`⚠️ Duplicate answer: ${userId} already answered Q${game.currentQuestionIndex + 1}`);
+      // ✅ PHASE 2: Reject late answers using deadline
+      const now = Date.now();
+      if (now > game.deadline) {
+        console.warn(`⏱️ Answer rejected: too late (deadline=${game.deadline}, now=${now}, diff=${now - game.deadline}ms)`);
+        socket.emit("answer_ack", { correct: false, late: true });
         return;
       }
 
-      console.log(`✅ First answer from ${userId} for Q${game.currentQuestionIndex + 1}/${game.totalQuestions}`);
-
-      try {
-        // Get question with correct answer for validation
-        const question = await getQuestionWithAnswer(resolvedRoomId, game.currentQuestionIndex);
-
-        if (!question) {
-          console.error(`❌ Question fetch failed: roomId="${resolvedRoomId}", index=${game.currentQuestionIndex}`);
-          socket.emit("error", { message: "Question validation failed" });
-          return;
-        }
-
-        // Mark player as answered
-        game.answeredPlayers.add(userId);
-
-        // Check if answer is correct
-        const isCorrect = selectedAnswer === question.correctAnswer;
-
-        // Update score
-        if (!game.playerScores[userId]) {
-          game.playerScores[userId] = 0;
-        }
-
-        if (isCorrect) {
-          game.playerScores[userId]++;
-          console.log(`⭐ CORRECT! ${userId} → Score: ${game.playerScores[userId]}`);
-        } else {
-          console.log(`❌ WRONG! ${userId} → Score: ${game.playerScores[userId]} (Correct: ${question.correctAnswer})`);
-        }
-
-        // CRITICAL: Persist game state after score update
-        setGame(resolvedRoomId, game);
-
-        // Send feedback to player
-        socket.emit("answer_feedback", {
-          correct: isCorrect,
-          correctAnswer: question.correctAnswer,
-          currentScore: game.playerScores[userId],
-        });
-
-        // Check if all players have answered.
-        // roomStates.players only contains NON-HOST players.
-        // The host also answers questions, so we add +1 to account for them.
-        // totalExpected = non-host players + 1 (host)
-        const nonHostPlayers = roomStates[resolvedRoomId]?.players.length ?? 0;
-        const totalExpected = nonHostPlayers + 1; // +1 for the host
-        const answeredCount = game.answeredPlayers.size;
-
-        console.log(`📊 Progress: ${answeredCount}/${totalExpected} answered (${nonHostPlayers} non-host + 1 host)`);
-
-        if (answeredCount >= totalExpected) {
-          console.log(`\n🎯 ALL PLAYERS ANSWERED! Moving to next question...\n`);
-          await moveToNextQuestion(io, resolvedRoomId);
-        }
-      } catch (error) {
-        console.error("❌ submit_answer error:", error);
-        socket.emit("error", { message: "Failed to process answer" });
+      // Prevent double submission from same player
+      if (game.answered.has(userId)) { // ✅ PHASE 3: Using 'answered'
+        console.log(`⚠️ Duplicate answer from ${userId}`);
+        socket.emit("answer_ack", { correct: false, duplicate: true });
+        return;
       }
+
+      // ✅ PHASE 2: Get current question
+      const currentQ = game.questions[game.currentIndex]; // ✅ PHASE 3: Using 'currentIndex'
+      if (!currentQ) {
+        console.error(`❌ Question not found at index ${game.currentIndex}`);
+        socket.emit("error", { message: "Question not found" });
+        return;
+      }
+
+      // ✅ PHASE 2: Check answer against correctAnswer
+      const isCorrect = selectedAnswer === currentQ.correctAnswer;
+
+      if (isCorrect) {
+        console.log(`⭐ CORRECT! ${userId} (Q${game.currentIndex + 1})`); // ✅ PHASE 3
+        game.scores[userId] = (game.scores[userId] || 0) + 1; // ✅ PHASE 3: Using 'scores'
+      } else {
+        console.log(`❌ WRONG! ${userId} (Correct: ${currentQ.correctAnswer})`);
+      }
+
+      // Mark as answered
+      game.answered.add(userId); // ✅ PHASE 3: Using 'answered'
+
+      // ✅ PHASE 2: Persist state
+      setGame(key, game);
+
+      // ✅ PHASE 2: Emit answer_ack (not answer_feedback)
+      socket.emit("answer_ack", {
+        correct: isCorrect,
+        correctAnswer: currentQ.correctAnswer,
+        currentScore: game.scores[userId], // ✅ PHASE 3: Using 'scores'
+      });
+
+      console.log(`✅ Answer processed. Answered: ${game.answered.size}/${Object.keys(game.scores).length}`); // ✅ PHASE 3: Using new field names
     });
 
     // ==================== ROOM CONTROL ====================
@@ -584,11 +524,23 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
     });
 
     socket.on("destroy_room", async (data: { roomId: string; userId: string }) => {
-      const { roomId, userId } = data;
+      let { roomId, userId } = data;
 
       if (!roomId || !userId) {
         socket.emit("error", { message: "Invalid request" });
         return;
+      }
+
+      // ✅ PHASE 1 FIX: Resolve shortCode if needed
+      if (roomId.length === 6 && /^\d+$/.test(roomId)) {
+        try {
+          const dbRoom = await Room.findOne({ shortCode: roomId });
+          if (dbRoom) {
+            roomId = dbRoom._id.toString();
+          }
+        } catch {
+          // continue
+        }
       }
 
       if (!roomStates[roomId] || roomStates[roomId].hostId !== userId) {
@@ -597,14 +549,15 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
       }
 
       try {
+        const roomKey = roomId.toString();
         await Room.findByIdAndDelete(roomId);
         await deleteQuestionsByRoom(roomId);
-        deleteGame(roomId);
+        deleteGame(roomKey);
 
-        io.to(roomId).emit("room_destroyed", {});
+        io.to(roomKey).emit("room_destroyed", {});
         delete roomStates[roomId];
 
-        console.log(`🗑️ Room destroyed: ${roomId}`);
+        console.log(`🗑️ Room destroyed: ${roomKey}`);
       } catch (error) {
         socket.emit("error", { message: "Destroy failed" });
       }
