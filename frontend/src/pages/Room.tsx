@@ -32,6 +32,7 @@ const Room: FC = () => {
   const [copied, setCopied] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
   const [shortCode, setShortCode] = useState<string>('')
+  const [objectId, setObjectId] = useState<string>('') // ✅ PHASE 1 FIX: Store the MongoDB ObjectId
   const [isLeavingRoom, setIsLeavingRoom] = useState(false)
   const [isDestroyingRoom, setIsDestroyingRoom] = useState(false)
 
@@ -51,11 +52,15 @@ const Room: FC = () => {
     console.log('📱 Socket initialized, connected:', socket.connected)
 
     // Handler for room_users event (initial player list + host status)
-    const handleRoomUsers = (data: { players: Player[]; isHost: boolean; shortCode?: string }) => {
+    const handleRoomUsers = (data: { players: Player[]; isHost: boolean; shortCode?: string; objectId?: string }) => {
       console.log('🎮 room_users event received:', data)
       setPlayers(data.players || [])
       setIsHost(data.isHost || false)
       setShortCode(data.shortCode || '')
+      setObjectId(data.objectId || '') // ✅ PHASE 1 FIX: Store the MongoDB ObjectId
+      // Persist host status so Results page can show Replay button
+      if (data.isHost) sessionStorage.setItem('isHost', 'true')
+      else sessionStorage.removeItem('isHost')
       setLoading(false)
     }
 
@@ -140,7 +145,8 @@ const Room: FC = () => {
     if (!isHost || players.length < 1) return
 
     setIsStarting(true)
-    emitEvent('start_game', { roomId })
+    // ✅ PHASE 1 FIX: Always emit start_game with the MongoDB ObjectId (not shortCode from URL)
+    emitEvent('start_game', { roomId: objectId || roomId })
   }
 
   // Leave room handler

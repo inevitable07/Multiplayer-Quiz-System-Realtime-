@@ -110,11 +110,11 @@ const Quiz: FC = () => {
     }
 
     /**
-     * Handle answer_feedback event from server
+     * ✅ PHASE 2: Handle answer_ack event from server
      * Shows correct/incorrect feedback with visual indicators
      */
-    const handleAnswerFeedback = (data: AnswerFeedback) => {
-      console.log('📬 Answer feedback:', data)
+    const handleAnswerAck = (data: AnswerFeedback) => {
+      console.log('📬 Answer acknowledgment:', data)
       setFeedback(data)
       setCurrentScore(data.currentScore)
     }
@@ -152,7 +152,7 @@ const Quiz: FC = () => {
 
     // Register listeners
     onEvent('send_question', handleSendQuestion)
-    onEvent('answer_feedback', handleAnswerFeedback)
+    onEvent('answer_ack', handleAnswerAck) // ✅ PHASE 2: Changed from 'answer_feedback'
     onEvent('game_over', handleGameOver)
     onEvent('error', handleError)
     onEvent('room_destroyed', handleRoomDestroyed)
